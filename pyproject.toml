@@ -1,0 +1,18 @@
+[project]
+name = "cachelint"
+version = "0.1.0"
+description = "Lint HTTP response headers for cache-control mistakes"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "kgarcia575" }]
+
+[project.scripts]
+cachelint = "cachelint:main"
+
+[tool.setuptools]
+py-modules = ["cachelint"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
