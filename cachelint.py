@@ -117,6 +117,32 @@ def check_contradictory_directives(headers: List[Header]) -> List[Finding]:
     return findings
 
 
+def check_stale_directives(headers: List[Header]) -> List[Finding]:
+    cc = find_header(headers, "Cache-Control")
+    if cc is None:
+        return []
+    d = cache_control_directives(cc.value)
+    findings = []
+    for name in ("stale-while-revalidate", "stale-if-error"):
+        if name not in d:
+            continue
+        raw = d[name]
+        try:
+            if raw is None or int(raw) < 0:
+                raise ValueError
+        except ValueError:
+            findings.append(Finding(cc.line, "error", f"bad-{name}",
+                                     f"{name} value {raw!r} is not a non-negative integer"))
+        if "no-store" in d:
+            findings.append(Finding(cc.line, "error", f"{name}-with-no-store",
+                                     f"no-store makes {name} pointless; the response is never stored"))
+    if "stale-while-revalidate" in d and "max-age" not in d and "s-maxage" not in d:
+        findings.append(Finding(cc.line, "warning", "stale-while-revalidate-without-max-age",
+                                 "stale-while-revalidate extends a freshness lifetime that "
+                                 "max-age/s-maxage never set"))
+    return findings
+
+
 def check_public_with_set_cookie(headers: List[Header]) -> List[Finding]:
     cc = find_header(headers, "Cache-Control")
     cookie = find_header(headers, "Set-Cookie")
@@ -156,6 +182,7 @@ def check_no_cache_without_validator(headers: List[Header]) -> List[Finding]:
 
 CHECKS = [
     check_contradictory_directives,
+    check_stale_directives,
     check_public_with_set_cookie,
     check_vary_star,
     check_no_cache_without_validator,

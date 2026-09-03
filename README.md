@@ -57,6 +57,9 @@ python3 cachelint.py headers/*.txt
 - `Cache-Control: public` and `Cache-Control: private` on the same response
 - `immutable` without a `max-age`
 - a `max-age` that isn't a non-negative integer
+- `stale-while-revalidate` or `stale-if-error` that isn't a non-negative integer
+- `stale-while-revalidate` or `stale-if-error` combined with `no-store` (dead weight, same problem as `max-age`)
+- `stale-while-revalidate` with no `max-age`/`s-maxage` to extend
 - `Cache-Control: public` next to `Set-Cookie` (cookie leakage into shared caches)
 - `Vary: *` next to a cacheable `max-age`/`public`
 - `no-cache` with no `ETag` or `Last-Modified` to revalidate against
