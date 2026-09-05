@@ -1,8 +1,8 @@
 """Check HTTP response headers for cache-control mistakes.
 
-Reads header dumps (the kind of thing `curl -sI` prints) and flags
-Cache-Control combinations that are contradictory, wasteful, or
-probably not what the author meant.
+Reads header dumps (the kind of thing `curl -sI` prints, or a full
+`curl -v` transcript) and flags Cache-Control combinations that are
+contradictory, wasteful, or probably not what the author meant.
 """
 from __future__ import annotations
 
@@ -42,8 +42,9 @@ class Finding:
         return f"{path}:{self.line}: {self.severity}: {self.message} [{self.code}]"
 
 
-def parse_headers(text: str) -> Tuple[Optional[int], List[Header]]:
+def parse_headers(text: str) -> Tuple[Optional[int], int, List[Header]]:
     status: Optional[int] = None
+    status_line = 1
     headers: List[Header] = []
     for i, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip()
@@ -53,11 +54,70 @@ def parse_headers(text: str) -> Tuple[Optional[int], List[Header]]:
             m = STATUS_LINE_RE.match(line)
             if m:
                 status = int(m.group(1))
+                status_line = i
                 continue
         m = HEADER_LINE_RE.match(line)
         if m:
             headers.append(Header(m.group(1), m.group(2).strip(), i))
-    return status, headers
+    return status, status_line, headers
+
+
+CURL_VERBOSE_LINE_RE = re.compile(r"^<\s?(.*)$")
+
+
+def looks_like_curl_verbose(text: str) -> bool:
+    # curl -v prefixes response header lines with "< "; request lines get
+    # "> " and connection chatter gets "* ", neither of which a plain
+    # `curl -sI` dump ever produces.
+    return any(re.match(r"^<\s", raw) for raw in text.splitlines())
+
+
+def parse_curl_verbose(text: str) -> List[Tuple[Optional[int], int, List[Header]]]:
+    """Split a `curl -v` transcript into one response per status line.
+
+    A single -v run can contain several responses (a 100-continue, a
+    redirect, the final response, one per -L hop), each starting with its
+    own "< HTTP/..." line. Only "< " lines are read; request and info
+    lines are ignored.
+    """
+    responses: List[Tuple[Optional[int], int, List[Header]]] = []
+    status: Optional[int] = None
+    status_line = 1
+    headers: List[Header] = []
+    started = False
+    for i, raw in enumerate(text.splitlines(), start=1):
+        m = CURL_VERBOSE_LINE_RE.match(raw)
+        if not m:
+            continue
+        line = m.group(1).strip()
+        if not line:
+            continue
+        status_m = STATUS_LINE_RE.match(line)
+        if status_m:
+            if started:
+                responses.append((status, status_line, headers))
+            status = int(status_m.group(1))
+            status_line = i
+            headers = []
+            started = True
+            continue
+        if not started:
+            continue
+        header_m = HEADER_LINE_RE.match(line)
+        if header_m:
+            headers.append(Header(header_m.group(1), header_m.group(2).strip(), i))
+    if started:
+        responses.append((status, status_line, headers))
+    return responses
+
+
+def parse_responses(text: str) -> List[Tuple[Optional[int], int, List[Header]]]:
+    if looks_like_curl_verbose(text):
+        return parse_curl_verbose(text)
+    status, status_line, headers = parse_headers(text)
+    if status is None and not headers:
+        return []
+    return [(status, status_line, headers)]
 
 
 def find_header(headers: List[Header], name: str) -> Optional[Header]:
@@ -84,9 +144,9 @@ def cache_control_directives(value: str) -> Dict[str, Optional[str]]:
     return directives
 
 
-def check_missing_cache_control(status: Optional[int], headers: List[Header]) -> List[Finding]:
+def check_missing_cache_control(status: Optional[int], status_line: int, headers: List[Header]) -> List[Finding]:
     if status in CACHEABLE_STATUSES and find_header(headers, "Cache-Control") is None:
-        return [Finding(1, "info", "missing-cache-control",
+        return [Finding(status_line, "info", "missing-cache-control",
                          f"status {status} has no Cache-Control header; caches are left to guess")]
     return []
 
@@ -190,10 +250,11 @@ CHECKS = [
 
 
 def lint_text(text: str) -> List[Finding]:
-    status, headers = parse_headers(text)
-    findings: List[Finding] = list(check_missing_cache_control(status, headers))
-    for check in CHECKS:
-        findings.extend(check(headers))
+    findings: List[Finding] = []
+    for status, status_line, headers in parse_responses(text):
+        findings.extend(check_missing_cache_control(status, status_line, headers))
+        for check in CHECKS:
+            findings.extend(check(headers))
     return sorted(findings, key=lambda f: f.line)
 
 

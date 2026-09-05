@@ -20,6 +20,17 @@ output of `curl -sI`:
 curl -sI https://example.com/ > headers.txt
 ```
 
+A full `curl -v` transcript works too, including redirects:
+
+```
+curl -v https://example.com/ > headers.txt 2>&1
+```
+
+cachelint reads the `< ...` response lines and ignores the rest (the
+`> ` request lines and `* ` connection chatter). If the transcript has
+more than one response in it, because of a redirect or a 100-continue,
+each one is checked separately.
+
 or write one by hand:
 
 ```
