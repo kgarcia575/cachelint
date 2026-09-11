@@ -7,6 +7,7 @@ contradictory, wasteful, or probably not what the author meant.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from dataclasses import dataclass
@@ -40,6 +41,15 @@ class Finding:
 
     def format(self, path: str) -> str:
         return f"{path}:{self.line}: {self.severity}: {self.message} [{self.code}]"
+
+    def to_dict(self, path: str) -> Dict[str, object]:
+        return {
+            "path": path,
+            "line": self.line,
+            "severity": self.severity,
+            "code": self.code,
+            "message": self.message,
+        }
 
 
 def parse_headers(text: str) -> Tuple[Optional[int], int, List[Header]]:
@@ -264,21 +274,33 @@ def main(argv: Optional[List[str]] = None) -> int:
         description="Check HTTP response headers for cache-control mistakes.",
     )
     parser.add_argument("paths", nargs="+", help="files containing raw HTTP response headers")
+    parser.add_argument("--format", choices=["text", "json"], default="text",
+                         help="output format (default: text)")
     args = parser.parse_args(argv)
 
     had_error = False
+    json_findings: List[Dict[str, object]] = []
     for path in args.paths:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 text = f.read()
         except OSError as e:
-            print(f"{path}: {e.strerror}", file=sys.stderr)
+            if args.format == "json":
+                json_findings.append({"path": path, "error": e.strerror})
+            else:
+                print(f"{path}: {e.strerror}", file=sys.stderr)
             had_error = True
             continue
         for finding in lint_text(text):
-            print(finding.format(path))
+            if args.format == "json":
+                json_findings.append(finding.to_dict(path))
+            else:
+                print(finding.format(path))
             if finding.severity == "error":
                 had_error = True
+
+    if args.format == "json":
+        print(json.dumps(json_findings, indent=2))
 
     return 1 if had_error else 0
 

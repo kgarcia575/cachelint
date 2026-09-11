@@ -62,6 +62,35 @@ You can pass more than one file:
 python3 cachelint.py headers/*.txt
 ```
 
+For CI tooling, pass `--format json` to get a single JSON array on stdout
+instead of one line per finding:
+
+```
+python3 cachelint.py --format json headers.txt
+```
+
+```json
+[
+  {
+    "path": "headers.txt",
+    "line": 2,
+    "severity": "warning",
+    "code": "vary-star-defeats-cache",
+    "message": "Vary: * combined with a positive freshness lifetime means shared caches can almost never reuse this response"
+  },
+  {
+    "path": "headers.txt",
+    "line": 3,
+    "severity": "error",
+    "code": "public-with-set-cookie",
+    "message": "Cache-Control: public alongside Set-Cookie can leak session data through shared caches"
+  }
+]
+```
+
+A file that can't be read shows up as `{"path": ..., "error": ...}` instead
+of a finding. The exit code rule is unchanged either way.
+
 ## What it checks right now
 
 - `no-store` combined with `max-age` (the max-age is dead weight)
